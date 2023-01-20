@@ -115,22 +115,18 @@ define create_ns
 endef
 
 install: pre-install
-	helm install istio helm/kind/istio -n istio-system --create-namespace
 	helm install higress helm/kind/higress -n higress-system --create-namespace
 
-ENVOY_LATEST_IMAGE_TAG ?= bf607ae5541ce5c1cc95b4f98b3fd50a83346d33
-ISTIO_LATEST_IMAGE_TAG ?= bf607ae5541ce5c1cc95b4f98b3fd50a83346d33
+ENVOY_LATEST_IMAGE_TAG ?= 0.6.0
+ISTIO_LATEST_IMAGE_TAG ?= 0.6.0
 
 install-dev: pre-install
-	helm install istio helm/istio -n istio-system --create-namespace --set-json='pilot.tag="$(ISTIO_LATEST_IMAGE_TAG)"' --set-json='global.kind=true'
 	helm install higress helm/higress -n higress-system --create-namespace --set-json='controller.tag="$(TAG)"' --set-json='gateway.replicas=1' --set-json='gateway.tag="$(ENVOY_LATEST_IMAGE_TAG)"' --set-json='global.kind=true'
 
 uninstall:
-	helm uninstall istio -n istio-system
 	helm uninstall higress -n higress-system
 
 upgrade: pre-install
-	helm upgrade istio helm/kind/istio -n istio-system
 	helm upgrade higress helm/kind/higress -n higress-system
 
 helm-push:
@@ -181,7 +177,7 @@ include tools/tools.mk
 include tools/lint.mk
 
 .PHONY: e2e-test
-e2e-test: $(tools/kind) create-cluster kube-load-image install-dev run-e2e-test delete-cluster
+e2e-test: $(tools/kind) delete-cluster create-cluster kube-load-image install-dev run-e2e-test delete-cluster
 
 create-cluster: $(tools/kind)
 	tools/hack/create-cluster.sh
@@ -196,16 +192,9 @@ kube-load-image: docker-build $(tools/kind) ## Install the EG image to a kind cl
 
 .PHONY: run-e2e-test
 run-e2e-test:
-	@echo -e "\n\033[36mRunning higress e2e tests\033[0m\n"
-	kubectl apply -f samples/hello-world/quickstart.yaml
+	@echo -e "\n\033[36mRunning higress conformance tests...\033[0m"
 	@echo -e "\n\033[36mWaiting higress-controller to be ready...\033[0m\n"
 	kubectl wait --timeout=5m -n higress-system deployment/higress-controller --for=condition=Available
-	@echo -e "\n\033[36mWaiting istiod to be ready...\033[0m\n"
-	kubectl wait --timeout=5m -n istio-system deployment/istiod --for=condition=Available
 	@echo -e "\n\033[36mWaiting higress-gateway to be ready...\033[0m\n"
 	kubectl wait --timeout=5m -n higress-system deployment/higress-gateway --for=condition=Available
-
-	@echo -e "\n\033[36mSend request to call foo service...\033[0m\n"
-	curl -i -v http://localhost/foo
-	@echo -e "\n\n\033[36mSend request to call bar service...\033[0m\n"
-	curl -i -v http://localhost/bar
+	go test -v -tags conformance ./test/ingress/e2e_test.go --ingress-class=higress --debug=true --use-unique-ports=true
